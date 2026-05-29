@@ -19,26 +19,29 @@ die() { echo "[Proton11] 错误: $1" >&2; exit 1; }
 # 检测 exe 是 32 位还是 64 位
 detect_arch() {
     local exe="$1"
-    # 读取 PE header: offset 0x3C 处是 PE header 偏移
-    # PE header +4 是 Machine type: 0x14c=i386, 0x8664=AMD64
-    local machine
-    machine=$(od -A n -t x2 -j 0x3C -N 2 "$exe" 2>/dev/null | tr -d ' ')
-    if [ -z "$machine" ]; then
+    # 读取 PE header: offset 0x3C 处是 PE header 偏移 (little-endian)
+    # 用 -t x1 单字节读取避免字节序问题
+    local pe_off_hex
+    pe_off_hex=$(od -A n -t x1 -j 0x3C -N 4 "$exe" 2>/dev/null | tr -d ' ')
+    if [ -z "$pe_off_hex" ] || [ ${#pe_off_hex} -ne 8 ]; then
         warn "无法读取 PE header，默认使用 x64"
         echo "x64"
         return
     fi
-    # 计算PE header偏移 (little-endian)
-    local pe_offset=$((16#$machine))
+    # little-endian: 反转字节顺序
+    local b1=${pe_off_hex:0:2} b2=${pe_off_hex:2:2} b3=${pe_off_hex:4:2} b4=${pe_off_hex:6:2}
+    local pe_offset=$((16#$b2 * 256 + 16#$b1))
     if [ "$pe_offset" -lt 64 ] || [ "$pe_offset" -gt 4096 ]; then
         warn "PE header 偏移异常 ($pe_offset)，默认使用 x64"
         echo "x64"
         return
     fi
-    # 读取 Machine type (PE signature + 4 bytes = Machine)
+    # 读取 Machine type (PE signature + 4 bytes = Machine), little-endian
     local mach_hex
-    mach_hex=$(od -A n -t x2 -j $((pe_offset + 4)) -N 2 "$exe" 2>/dev/null | tr -d ' ')
+    mach_hex=$(od -A n -t x1 -j $((pe_offset + 4)) -N 2 "$exe" 2>/dev/null | tr -d ' ')
     case "$mach_hex" in
+        4c01) echo "x86" ;;
+        6486) echo "x64" ;;
         4c01) echo "x86" ;;
         6486) echo "x64" ;;
         *)
