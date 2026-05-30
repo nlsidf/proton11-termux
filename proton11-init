@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # ============================================================
 # Proton 11 环境初始化脚本
-# 首次使用前运行，完成 wineprefix 创建、DXVK 安装、Mono 安装
+# 首次使用前运行，完成 wineprefix 创建、DXVK 安装、Mono 安装、Gecko 安装
 # 用法: proton11-init
 # ============================================================
 
@@ -18,36 +18,37 @@ BOX64="$PROJ/box64/build/box64"
 WINEPREFIX_DIR="$PROJ/p11prefix"
 DXVK_DIR="$PROJ/dxvk-2.5.3/x64"
 MONO_MSI="$PROJ/wine-mono-11.1.0-x86.msi"
-
-# ==================== 检查前置条件 ====================
+GECKO_MSI_X86="$PROJ/wine-gecko-2.47.4-x86.msi"
+GECKO_MSI_X64="$PROJ/wine-gecko-2.47.4-x86_64.msi"
 
 check_prereqs() {
     [ -x "$BOX64" ] || die "Box64 未找到: $BOX64"
     [ -x "$WINE_BIN" ] || die "Wine 未找到: $WINE_BIN"
-
-    # 检查关键符号链接
     if [ ! -L "$PROJ/xaw64_wine/proton-11" ]; then
-        die "xaw64_wine/proton-11 符号链接缺失！请先运行:\n  cd ~/proton11/xaw64_wine && ln -s ~/proton11/proton-11 proton-11"
+        die "xaw64_wine/proton-11 符号链接缺失"
     fi
     if [ ! -L "$PROJ/xaw64_wine/10.7-stable" ]; then
-        die "xaw64_wine/10.7-stable 符号链接缺失！请先运行:\n  cd ~/proton11/xaw64_wine && ln -s proton-11 10.7-stable"
+        die "xaw64_wine/10.7-stable 符号链接缺失"
     fi
     if [ ! -f "$PROJ/xaw64_wine/.wine-version" ]; then
-        die "xaw64_wine/.wine-version 文件缺失！请先运行:\n  echo proton-11 > ~/proton11/xaw64_wine/.wine-version"
+        die "xaw64_wine/.wine-version 文件缺失"
     fi
 }
 
-# ==================== 配置环境变量 ====================
+kill_all_wine() {
+    for name in wineserver wineboot rundll32 services winedevice plugplay svchost rpcss explorer tabtip game; do
+        pkill -9 -f "$name" 2>/dev/null || true
+    done
+    sleep 1
+}
 
 setup_env() {
     unset LD_PRELOAD
-
     export DISPLAY=:1
     export WINEPREFIX=$WINEPREFIX_DIR
     export WINEESYNC=1
     export WINEDEBUG=-all
     export VK_ICD_FILENAMES=/data/data/com.termux/files/usr/share/vulkan/icd.d/lvp_icd.aarch64.json
-
     export BOX64_MMAP32=1
     export BOX64_DYNAREC_SAFEFLAGS=2
     export BOX64_DYNAREC_BIGBLOCK=3
@@ -59,151 +60,185 @@ setup_env() {
     export BOX64_DYNAREC_FASTNAN=1
     export BOX64_DYNAREC_FASTROUND=1
     export BOX64_RCFILE=$PROJ/xaw64_box64/etc/box64.box64rc
-
     export BOX64_LD_LIBRARY_PATH=/data/data/com.termux/files/usr/lib:$PROJ/xaw64_box64/lib:$PROJ/xaw64_wine/proton-11/lib/wine/x86_64-unix:$PROJ/xaw64_wine/proton-11/lib/wine/i386-windows:$PROJ/xaw64_wine/x86_64-windows:$PROJ/proton-11/lib
     export LD_LIBRARY_PATH=/data/data/com.termux/files/usr/lib:${LD_LIBRARY_PATH:-}
-
     export PULSE_SERVER=tcp:127.0.0.1:4713
     export WINEDLLOVERRIDES="winepulse.drv=b;winealsa.drv="
 }
 
-# ==================== 初始化步骤 ====================
+start_wineserver() {
+    local esync=$1
+    export WINEESYNC=$esync
+    $BOX64 $WINE_BIN wineserver -p 2>/dev/null &
+    for i in $(seq 1 10); do
+        if $BOX64 $WINE_BIN cmd /c "ver" 2>/dev/null | grep -qi windows; then
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
+}
+
+install_msi() {
+    local src="$1"
+    local msi_file=$(basename "$src")
+    cp "$src" "$WINEPREFIX_DIR/drive_d/"
+    $BOX64 $WINE_BIN msiexec /i "C:\\$msi_file" /quiet 2>/dev/null &
+    local MPID=$!
+    for i in $(seq 1 300); do
+        ! kill -0 $MPID 2>/dev/null && break
+        sleep 1
+    done
+    rm -f "$WINEPREFIX_DIR/drive_d/$msi_file"
+}
 
 init_wineprefix() {
-    # 如果已经初始化过，跳过
     if [ -f "$WINEPREFIX_DIR/drive_d/windows/system32/kernel32.dll" ]; then
         log "Wineprefix 已存在，跳过 wineboot"
-        # 确保 drive_c 链接存在
         if [ ! -L "$WINEPREFIX_DIR/drive_c" ]; then
-            log "修复 drive_c → drive_d 符号链接..."
+            log "修复 drive_c -> drive_d 符号链接..."
             rm -f "$WINEPREFIX_DIR/drive_c"
             ln -s drive_d "$WINEPREFIX_DIR/drive_c"
         fi
         return 0
     fi
 
-    log "步骤 1/4: 运行 wineboot 初始化 (约 1-3 分钟)..."
-
-    # 运行 wineboot
+    log "步骤 1/5: 运行 wineboot 初始化 (约 1-3 分钟)..."
     $BOX64 $WINE_BIN wineboot --init 2>/dev/null &
     local WPID=$!
 
-    # 等待 drive_d 出现后立即创建 drive_c 链接 (关键!)
-    # Proton 使用 drive_d，但 Wine 通过 C:\ 路径写入 drive_c
-    # 没有此链接，wineboot 中所有 DLL 安装都会失败 (error=3)
     for i in $(seq 1 60); do
         if [ -d "$WINEPREFIX_DIR/drive_d" ] && [ ! -e "$WINEPREFIX_DIR/drive_c" ]; then
             ln -s drive_d "$WINEPREFIX_DIR/drive_c"
-            log "drive_c → drive_d 符号链接已创建"
+            log "drive_c -> drive_d 符号链接已创建"
             break
         fi
         sleep 1
     done
 
-    # 等待 wineboot 完成
     for i in $(seq 1 180); do
         ! kill -0 $WPID 2>/dev/null && break
         sleep 1
     done
 
-    # 清理
-    pkill -9 -f wineserver 2>/dev/null || true
-    sleep 1
+    kill_all_wine
 
-    # 确保 Z: 盘映射
     rm -f "$WINEPREFIX_DIR/dosdevices/z:"
-    ln -s / "$WINEPREFIX_DIR/dosdevices/z:"
-
+    ln -s "$HOME" "$WINEPREFIX_DIR/dosdevices/z:"
     log "wineboot 完成"
 }
 
 install_dxvk() {
-    # 检查是否已安装
-    if [ -f "$WINEPREFIX_DIR/drive_d/windows/system32/d3d11.dll" ] && \
-       grep -q '"d3d11"="native,builtin"' "$WINEPREFIX_DIR/user.reg" 2>/dev/null; then
+    if [ -f "$WINEPREFIX_DIR/drive_d/windows/system32/d3d11.dll" ] && grep -q "d3d11\"=\"native,builtin" "$WINEPREFIX_DIR/user.reg" 2>/dev/null; then
         log "DXVK 已安装，跳过"
         return 0
     fi
-
     if [ ! -d "$DXVK_DIR" ]; then
-        warn "DXVK 目录不存在: $DXVK_DIR，跳过 DXVK 安装"
+        warn "DXVK 目录不存在: $DXVK_DIR，跳过"
         return 0
     fi
-
-    log "步骤 2/4: 安装 DXVK 2.5.3..."
+    log "步骤 2/5: 安装 DXVK 2.5.3..."
     cp "$DXVK_DIR/d3d11.dll" "$WINEPREFIX_DIR/drive_d/windows/system32/"
     cp "$DXVK_DIR/dxgi.dll" "$WINEPREFIX_DIR/drive_d/windows/system32/"
-
-    # 写入 DllOverrides 注册表 (让 Wine 优先使用 DXVK 的 native DLL)
-    if ! grep -q '"d3d11"="native,builtin"' "$WINEPREFIX_DIR/user.reg" 2>/dev/null; then
-        cat >> "$WINEPREFIX_DIR/user.reg" << 'EOF'
-
-[Software\\Wine\\DllOverrides]
-"d3d11"="native,builtin"
-"dxgi"="native,builtin"
-EOF
+    if ! grep -q "d3d11\"=\"native,builtin" "$WINEPREFIX_DIR/user.reg" 2>/dev/null; then
+        printf n[Software\\Wine\\DllOverrides]nd3d11=native,builtinndxgi=native,builtinn >> "$WINEPREFIX_DIR/user.reg"
     fi
-
     log "DXVK 安装完成"
 }
 
 install_mono() {
-    # 检查是否已安装
     if [ -d "$WINEPREFIX_DIR/drive_d/windows/mono" ]; then
         log "Wine Mono 已安装，跳过"
         return 0
     fi
-
     if [ ! -f "$MONO_MSI" ]; then
         warn "Wine Mono 安装包不存在: $MONO_MSI，跳过"
         return 0
     fi
-
-    log "步骤 3/4: 安装 Wine Mono 11.1.0 (约 1-2 分钟)..."
-    $BOX64 $WINE_BIN msiexec /i "Z:\\data\\data\\com.termux\\files\\home\\proton11\\wine-mono-11.1.0-x86.msi" /quiet 2>/dev/null &
-    for i in $(seq 1 120); do
-        ! kill -0 $! 2>/dev/null && break
-        sleep 1
-    done
-    pkill -9 -f wineserver 2>/dev/null || true
-    sleep 1
-
+    log "步骤 3/5: 安装 Wine Mono 11.1.0 (约 1-2 分钟)..."
+    kill_all_wine
+    start_wineserver 0
+    install_msi "$MONO_MSI"
+    kill_all_wine
     log "Wine Mono 安装完成"
 }
 
+install_gecko() {
+    if [ -d "$WINEPREFIX_DIR/drive_d/windows/system32/gecko" ] && ls "$WINEPREFIX_DIR/drive_d/windows/system32/gecko/"* &>/dev/null 2>/dev/null; then
+        local gfiles=$(find "$WINEPREFIX_DIR/drive_d/windows/system32/gecko" -type f 2>/dev/null | wc -l)
+        if [ "$gfiles" -gt 2 ]; then
+            log "Wine Gecko 已安装，跳过"
+            return 0
+        fi
+    fi
+    kill_all_wine
+
+    if [ -f "$GECKO_MSI_X64" ]; then
+        log "步骤 4/5: 安装 Wine Gecko 2.47.4 x86_64 (约 1-2 分钟)..."
+        start_wineserver 0
+        install_msi "$GECKO_MSI_X64"
+        kill_all_wine
+    fi
+    if [ -f "$GECKO_MSI_X86" ]; then
+        log "步骤 4/5: 安装 Wine Gecko 2.47.4 x86 (约 1-2 分钟)..."
+        start_wineserver 0
+        install_msi "$GECKO_MSI_X86"
+        kill_all_wine
+    fi
+
+    if [ -d "$WINEPREFIX_DIR/drive_d/windows/system32/gecko" ]; then
+        log "Wine Gecko 安装完成"
+    else
+        warn "Wine Gecko 安装失败或安装包不存在，跳过"
+    fi
+}
+
+enable_esync() {
+    log "启用 ESYNC..."
+    kill_all_wine
+    WINEESYNC=1 start_wineserver 1
+    log "ESYNC 已启用"
+}
+
 verify() {
-    log "步骤 4/4: 验证安装..."
-
+    log "步骤 5/5: 验证安装..."
     local ok=true
-
     if [ -L "$WINEPREFIX_DIR/drive_c" ]; then
-        log "  drive_c → drive_d: OK"
+        log "  drive_c -> drive_d: OK"
     else
         warn "  drive_c 符号链接: 缺失!"
         ok=false
     fi
-
     if [ -f "$WINEPREFIX_DIR/drive_d/windows/system32/kernel32.dll" ]; then
         log "  Wineprefix: OK"
     else
         warn "  Wineprefix: 未初始化!"
         ok=false
     fi
-
     if [ -f "$WINEPREFIX_DIR/drive_d/windows/system32/d3d11.dll" ]; then
         log "  DXVK: OK"
     else
         warn "  DXVK: 未安装"
         ok=false
     fi
-
     if [ -d "$WINEPREFIX_DIR/drive_d/windows/mono" ]; then
         log "  Wine Mono: OK"
     else
         warn "  Wine Mono: 未安装"
         ok=false
     fi
-
+    if [ -d "$WINEPREFIX_DIR/drive_d/windows/system32/gecko" ] && ls "$WINEPREFIX_DIR/drive_d/windows/system32/gecko/"* &>/dev/null 2>/dev/null; then
+        local gfiles=$(find "$WINEPREFIX_DIR/drive_d/windows/system32/gecko" -type f 2>/dev/null | wc -l)
+        if [ "$gfiles" -gt 2 ]; then
+            log "  Wine Gecko: OK"
+        else
+            warn "  Wine Gecko: 未安装"
+            ok=false
+        fi
+    else
+        warn "  Wine Gecko: 未安装"
+        ok=false
+    fi
     if $ok; then
         log ""
         log "初始化完成! 现在可以启动游戏:"
@@ -213,17 +248,16 @@ verify() {
     fi
 }
 
-# ==================== 主流程 ====================
-
 main() {
     log "Proton 11 环境初始化"
     log ""
-
     check_prereqs
     setup_env
     init_wineprefix
     install_dxvk
     install_mono
+    install_gecko
+    enable_esync
     verify
 }
 

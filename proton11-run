@@ -51,15 +51,27 @@ detect_arch() {
 
 # 检测 exe 依赖的 DirectX 版本 (简单启发式)
 detect_dx() {
-    local exe_dir="$1"
-    # 如果游戏目录有 d3d11.dll/dxgi.dll，说明是 DX11+
-    if ls "$exe_dir"/*.dll 2>/dev/null | grep -qiE "d3d11|dxgi"; then
+    local exe="$1"
+    local exe_dir=$(dirname "$exe")
+    # 检查 exe 导入表中是否有 D3D11/DXGI/D3D9
+    local d3d_refs=$(strings "$exe" 2>/dev/null | grep -iE "d3d11\.dll|dxgi\.dll|d3d9\.dll" | sort -u)
+    if echo "$d3d_refs" | grep -qiE "d3d11|dxgi"; then
         echo "dx11"
-    # 如果游戏目录有 d3d9.dll，说明是 DX9
+    elif echo "$d3d_refs" | grep -qi "d3d9"; then
+        echo "dx9"
+    # 目录内 DLL 检测
+    elif ls "$exe_dir"/*.dll 2>/dev/null | grep -qiE "d3d11|dxgi"; then
+        echo "dx11"
     elif ls "$exe_dir"/*.dll 2>/dev/null | grep -qiE "d3d9"; then
         echo "dx9"
+    # 默认: x64 -> DXVK, x86 -> wined3d
     else
-        echo "auto"
+        local arch=$(detect_arch "$exe")
+        if [ "$arch" = "x64" ]; then
+            echo "dx11"
+        else
+            echo "dx9"
+        fi
     fi
 }
 
