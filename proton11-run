@@ -42,8 +42,6 @@ detect_arch() {
     case "$mach_hex" in
         4c01) echo "x86" ;;
         6486) echo "x64" ;;
-        4c01) echo "x86" ;;
-        6486) echo "x64" ;;
         *)
             warn "未知 Machine type: 0x$mach_hex，默认使用 x64"
             echo "x64"
@@ -239,6 +237,11 @@ main() {
 
     # 确保 PulseAudio 运行
     ensure_audio
+
+    # 检查 wineprefix 是否已初始化
+    if [ ! -f "$PROJ/p11prefix/drive_d/windows/system32/kernel32.dll" ]; then
+        die "Wineprefix 未初始化！请先运行: $PROJ/proton11-init"
+    fi
 
     # 配置环境
     setup_env "$arch" "$dx_ver"
