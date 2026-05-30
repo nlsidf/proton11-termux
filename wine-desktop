@@ -29,9 +29,9 @@ export BOX64_DYNAREC_FASTROUND=1
 export BOX64_RCFILE=$PROJ/xaw64_box64/etc/box64.box64rc
 export BOX64_DYNACACHE=1
 export BOX64_DYNACACHE_FOLDER=$PROJ/.cache/dynacache
-export BOX64_DYNACACHE_LIMIT=0
+export BOX64_DYNACACHE_LIMIT=4403
 export BOX64_DYNACACHE_COMPRESS=1
-export BOX64_DYNACACHE_MIN=100
+export BOX64_DYNACACHE_MIN=225
 export BOX64_LD_LIBRARY_PATH=/data/data/com.termux/files/usr/lib:$PROJ/xaw64_box64/lib:$PROJ/xaw64_wine/proton-11/lib/wine/x86_64-unix:$PROJ/xaw64_wine/proton-11/lib/wine/i386-windows:$PROJ/xaw64_wine/x86_64-windows:$PROJ/proton-11/lib
 export LD_LIBRARY_PATH=/data/data/com.termux/files/usr/lib:${LD_LIBRARY_PATH:-}
 

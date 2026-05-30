@@ -100,9 +100,9 @@ setup_env() {
     mkdir -p "$DYNACACHE_DIR"
     export BOX64_DYNACACHE=1
     export BOX64_DYNACACHE_FOLDER="$DYNACACHE_DIR"
-    export BOX64_DYNACACHE_LIMIT=0            # 不限制缓存大小，用空间换时间
-    export BOX64_DYNACACHE_COMPRESS=1          # 最快压缩，节省空间同时开销极小
-    export BOX64_DYNACACHE_MIN=100             # 降低最小缓存阈值，更多代码被缓存
+    export BOX64_DYNACACHE_LIMIT=4403           # 最大缓存 4.3GiB，用空间换时间
+    export BOX64_DYNACACHE_COMPRESS=1           # 最快压缩，节省空间同时开销极小
+    export BOX64_DYNACACHE_MIN=225              # 225KB 最小缓存阈值
 
     # Box64 DynaRec 性能优化 (Wine 推荐配置)
     export BOX64_DYNAREC_BIGBLOCK=3          # Wine 程序用 3（最大化代码块）
