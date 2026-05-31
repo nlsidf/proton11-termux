@@ -1,45 +1,64 @@
 #!/data/data/com.termux/files/usr/bin/bash
-# proton11-fonts: 安装中文字体到 Wine 前缀
+# proton11-fonts: 安装中文字体到 Wine 前缀 (通过 wine regedit 注册)
 PROJ="${1:-$HOME/proton11}"
 PREFIX="${2:-$PROJ/p11prefix}"
 FONTS_DIR="$PREFIX/drive_c/windows/Fonts"
-REG="$PREFIX/system.reg"
+BOX64="$PROJ/box64/build/box64"
+WINE="$PROJ/xaw64_wine/proton-11/bin/wine"
 
-# 判断字体文件是否存在, 不存在则下载
+install_via_regedit() {
+    local regfile="$PREFIX/drive_c/install-fonts.reg"
+    cat > "$regfile" << "REGEOF"
+REGEDIT4
+
+[HKEY_LOCAL_MACHINE\Software\Microsoft\Windows NT\CurrentVersion\Fonts]
+"SimSun (TrueType)"="wqy-microhei.ttc"
+"SimSun-ExtB (TrueType)"="wqy-microhei.ttc"
+"Microsoft YaHei (TrueType)"="wqy-microhei.ttc"
+"Microsoft YaHei UI (TrueType)"="wqy-microhei.ttc"
+"MS Mincho (TrueType)"="wqy-microhei.ttc"
+"MS Gothic (TrueType)"="wqy-microhei.ttc"
+"Yu Gothic (TrueType)"="wqy-microhei.ttc"
+"Meiryo (TrueType)"="wqy-microhei.ttc"
+
+[HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Fonts]
+"SimSun (TrueType)"="wqy-microhei.ttc"
+"SimSun-ExtB (TrueType)"="wqy-microhei.ttc"
+"Microsoft YaHei (TrueType)"="wqy-microhei.ttc"
+"Microsoft YaHei UI (TrueType)"="wqy-microhei.ttc"
+"MS Mincho (TrueType)"="wqy-microhei.ttc"
+"MS Gothic (TrueType)"="wqy-microhei.ttc"
+"Yu Gothic (TrueType)"="wqy-microhei.ttc"
+"Meiryo (TrueType)"="wqy-microhei.ttc"
+
+[HKEY_CURRENT_USER\Software\Wine\Fonts\Replacements]
+"MS Shell Dlg"="SimSun"
+"MS Shell Dlg 2"="SimSun"
+REGEOF
+
+    DISPLAY=:1 WINEPREFIX=$PREFIX WINEESYNC=1 "$BOX64" "$WINE" wineserver -k 2>/dev/null
+    sleep 1
+    DISPLAY=:1 WINEPREFIX=$PREFIX WINEESYNC=1 "$BOX64" "$WINE" wineserver -p 2>/dev/null
+    sleep 1
+    DISPLAY=:1 WINEPREFIX=$PREFIX WINEESYNC=1 "$BOX64" "$WINE" regedit "C:/install-fonts.reg" 2>/dev/null
+    rm -f "$regfile"
+    echo "注册表已通过 wine regedit 导入"
+}
+
+# 下载并复制字体
 if [ ! -f "$FONTS_DIR/wqy-microhei.ttc" ]; then
-  echo "下载文泉驿微米黑..."
-  mkdir -p "$FONTS_DIR" "$HOME/tmp"
-  curl -sL -o "$HOME/tmp/wqy-microhei.deb" \
-    "https://mirrors.kernel.org/ubuntu/pool/universe/f/fonts-wqy-microhei/fonts-wqy-microhei_0.2.0-beta-3.1_all.deb"
-  cd "$HOME/tmp" && ar x wqy-microhei.deb && tar xf data.tar.xz
-  cp usr/share/fonts/truetype/wqy/wqy-microhei.ttc "$FONTS_DIR/"
-  rm -rf "$HOME/tmp/wqy-microhei*" usr
-  echo "字体下载完成"
+    echo "下载文泉驿微米黑..."
+    mkdir -p "$FONTS_DIR" "$HOME/tmp"
+    curl -sL -o "$HOME/tmp/wqy-microhei.deb" \
+        "https://mirrors.kernel.org/ubuntu/pool/universe/f/fonts-wqy-microhei/fonts-wqy-microhei_0.2.0-beta-3.1_all.deb"
+    cd "$HOME/tmp" && ar x wqy-microhei.deb && tar xf data.tar.xz
+    cp usr/share/fonts/truetype/wqy/wqy-microhei.ttc "$FONTS_DIR/"
+    rm -rf "$HOME/tmp/wqy-microhei*" usr
+    echo "字体下载完成: $(ls -lh "$FONTS_DIR/wqy-microhei.ttc" | awk "{print \$5}")"
 fi
 
-# 注册到注册表 (Windows NT\CurrentVersion\Fonts)
-# 先删除旧的 wqy-microhei 条目
-sed -i "/wqy-microhei\.ttc/d" "$REG"
+install_via_regedit
 
-# 在 FontSubstitutes 之前插入
-LINE=$(grep -n "FontSubstitutes" "$REG" | head -1 | cut -d: -f1)
-if [ -n "$LINE" ]; then
-  INSERT=$((LINE - 1))
-  sed -i "${INSERT}a\\
-\"SimSun (TrueType)\"=\"wqy-microhei.ttc\"\\
-\"SimSun-ExtB (TrueType)\"=\"wqy-microhei.ttc\"\\
-\"Microsoft YaHei (TrueType)\"=\"wqy-microhei.ttc\"\\
-\"Microsoft YaHei UI (TrueType)\"=\"wqy-microhei.ttc\"\\
-\"Droid Sans Fallback (TrueType)\"=\"wqy-microhei.ttc\"\\
-\"Noto Sans CJK SC (TrueType)\"=\"wqy-microhei.ttc\"\\
-\"MS Mincho (TrueType)\"=\"wqy-microhei.ttc\"\\
-\"MS Gothic (TrueType)\"=\"wqy-microhei.ttc\"\\
-\"Yu Gothic (TrueType)\"=\"wqy-microhei.ttc\"\\
-\"Meiryo (TrueType)\"=\"wqy-microhei.ttc\"" "$REG"
-fi
-
-# 设置 MS Shell Dlg → SimSun (中文回退)
-sed -i "s/\"MS Shell Dlg\"=\"Tahoma\"/\"MS Shell Dlg\"=\"SimSun\"/" "$REG"
-sed -i "s/\"MS Shell Dlg 2\"=\"Tahoma\"/\"MS Shell Dlg 2\"=\"SimSun\"/" "$REG"
-
-echo "中文字体安装完成: $(ls -lh "$FONTS_DIR/wqy-microhei.ttc" | awk "{print \$5}")"
+echo ""
+echo "中文字体安装完成！"
+echo "下次启动游戏时中文应正常显示 (不再显示□)"
