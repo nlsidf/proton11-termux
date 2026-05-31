@@ -1,0 +1,61 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# run - 通用游戏启动器
+# 用法: run <game_dir_or_exe>
+# 示例: run seira              # 启动 ~/basement/loveai/seira
+#       run ~/basement/loveai/naga           # 完整路径
+#       run starfalling/Nagaruboshi.exe      # 相对路径exe
+
+PROJ="$HOME/proton11"
+BASE="$HOME/basement/loveai"
+BOX64="$PROJ/box64/build/box64"
+WINE="$PROJ/xaw64_wine/proton-11/bin/wine"
+
+if [ $# -lt 1 ]; then
+    echo "用法: run <游戏目录或exe路径>"
+    echo "示例: run seira"
+    echo "       run starfalling/Nagaruboshi.exe"
+    echo ""
+    echo "可用游戏:"
+    ls "$BASE"
+    exit 1
+fi
+
+INPUT="$1"
+
+# 解析输入: 找exe
+if [ -f "$INPUT" ]; then
+    EXE=$(realpath "$INPUT")
+    NAME=$(basename "$(dirname "$EXE")")
+elif [ -d "$INPUT" ]; then
+    DIR=$(realpath "$INPUT")
+    NAME=$(basename "$DIR")
+    # 找exe
+    EXE=$(ls "$DIR"/*.exe 2>/dev/null | head -1)
+    if [ -z "$EXE" ]; then
+        echo "❌ $DIR 中没有找到 .exe 文件"
+        exit 1
+    fi
+elif [ -d "$BASE/$INPUT" ]; then
+    DIR="$BASE/$INPUT"
+    NAME="$INPUT"
+    EXE=$(ls "$DIR"/*.exe 2>/dev/null | head -1)
+    if [ -z "$EXE" ]; then
+        echo "❌ $DIR 中没有找到 .exe 文件"
+        exit 1
+    fi
+else
+    echo "❌ 找不到: $INPUT"
+    exit 1
+fi
+
+echo "🎮 $NAME"
+echo "📂 $EXE"
+
+# 启动
+tmux kill-session -t "$NAME" 2>/dev/null; sleep 1
+tmux new-session -c "$(dirname "$EXE")" -d -s "$NAME" \
+  "exec $PROJ/proton11-run \"$EXE\""
+
+echo ">>> 正在显示输出, Ctrl+B D 断开 (游戏继续后台运行)"
+sleep 1
+tmux attach -t "$NAME"
