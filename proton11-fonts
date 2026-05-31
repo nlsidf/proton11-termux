@@ -1,51 +1,12 @@
 #!/data/data/com.termux/files/usr/bin/bash
-# proton11-fonts: 安装中文字体到 Wine 前缀 (通过 wine regedit 注册)
+# proton11-fonts: 完整中文字体安装 (FontSubstitutes + FontLink + Replacements)
 PROJ="${1:-$HOME/proton11}"
 PREFIX="${2:-$PROJ/p11prefix}"
 FONTS_DIR="$PREFIX/drive_c/windows/Fonts"
 BOX64="$PROJ/box64/build/box64"
 WINE="$PROJ/xaw64_wine/proton-11/bin/wine"
 
-install_via_regedit() {
-    local regfile="$PREFIX/drive_c/install-fonts.reg"
-    cat > "$regfile" << "REGEOF"
-REGEDIT4
-
-[HKEY_LOCAL_MACHINE\Software\Microsoft\Windows NT\CurrentVersion\Fonts]
-"SimSun (TrueType)"="wqy-microhei.ttc"
-"SimSun-ExtB (TrueType)"="wqy-microhei.ttc"
-"Microsoft YaHei (TrueType)"="wqy-microhei.ttc"
-"Microsoft YaHei UI (TrueType)"="wqy-microhei.ttc"
-"MS Mincho (TrueType)"="wqy-microhei.ttc"
-"MS Gothic (TrueType)"="wqy-microhei.ttc"
-"Yu Gothic (TrueType)"="wqy-microhei.ttc"
-"Meiryo (TrueType)"="wqy-microhei.ttc"
-
-[HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Fonts]
-"SimSun (TrueType)"="wqy-microhei.ttc"
-"SimSun-ExtB (TrueType)"="wqy-microhei.ttc"
-"Microsoft YaHei (TrueType)"="wqy-microhei.ttc"
-"Microsoft YaHei UI (TrueType)"="wqy-microhei.ttc"
-"MS Mincho (TrueType)"="wqy-microhei.ttc"
-"MS Gothic (TrueType)"="wqy-microhei.ttc"
-"Yu Gothic (TrueType)"="wqy-microhei.ttc"
-"Meiryo (TrueType)"="wqy-microhei.ttc"
-
-[HKEY_CURRENT_USER\Software\Wine\Fonts\Replacements]
-"MS Shell Dlg"="SimSun"
-"MS Shell Dlg 2"="SimSun"
-REGEOF
-
-    DISPLAY=:1 WINEPREFIX=$PREFIX WINEESYNC=1 "$BOX64" "$WINE" wineserver -k 2>/dev/null
-    sleep 1
-    DISPLAY=:1 WINEPREFIX=$PREFIX WINEESYNC=1 "$BOX64" "$WINE" wineserver -p 2>/dev/null
-    sleep 1
-    DISPLAY=:1 WINEPREFIX=$PREFIX WINEESYNC=1 "$BOX64" "$WINE" regedit "C:/install-fonts.reg" 2>/dev/null
-    rm -f "$regfile"
-    echo "注册表已通过 wine regedit 导入"
-}
-
-# 下载并复制字体
+# 下载字体
 if [ ! -f "$FONTS_DIR/wqy-microhei.ttc" ]; then
     echo "下载文泉驿微米黑..."
     mkdir -p "$FONTS_DIR" "$HOME/tmp"
@@ -54,11 +15,82 @@ if [ ! -f "$FONTS_DIR/wqy-microhei.ttc" ]; then
     cd "$HOME/tmp" && ar x wqy-microhei.deb && tar xf data.tar.xz
     cp usr/share/fonts/truetype/wqy/wqy-microhei.ttc "$FONTS_DIR/"
     rm -rf "$HOME/tmp/wqy-microhei*" usr
-    echo "字体下载完成: $(ls -lh "$FONTS_DIR/wqy-microhei.ttc" | awk "{print \$5}")"
 fi
+echo "字体文件: $(ls -lh "$FONTS_DIR/wqy-microhei.ttc" | awk "{print \$5}")"
 
-install_via_regedit
+# 生成完整注册表
+cat > "$PREFIX/drive_c/fontfix.reg" << "REGEOF"
+REGEDIT4
 
-echo ""
-echo "中文字体安装完成！"
-echo "下次启动游戏时中文应正常显示 (不再显示□)"
+[HKEY_LOCAL_MACHINE\Software\Microsoft\Windows NT\CurrentVersion\FontSubstitutes]
+"MS Shell Dlg"="WenQuanYi Micro Hei"
+"MS Shell Dlg 2"="WenQuanYi Micro Hei"
+"Tahoma"="WenQuanYi Micro Hei"
+"SimSun"="WenQuanYi Micro Hei"
+"NSimSun"="WenQuanYi Micro Hei"
+"SimHei"="WenQuanYi Micro Hei"
+"Microsoft YaHei"="WenQuanYi Micro Hei"
+"Microsoft YaHei UI"="WenQuanYi Micro Hei"
+"MS Mincho"="WenQuanYi Micro Hei"
+"MS Gothic"="WenQuanYi Micro Hei"
+"Yu Gothic"="WenQuanYi Micro Hei"
+"Meiryo"="WenQuanYi Micro Hei"
+"Arial"="WenQuanYi Micro Hei"
+"Courier New"="WenQuanYi Micro Hei"
+"Microsoft Sans Serif"="WenQuanYi Micro Hei"
+"Segoe UI"="WenQuanYi Micro Hei"
+"Fixedsys"="WenQuanYi Micro Hei"
+"System"="WenQuanYi Micro Hei"
+"宋体"="WenQuanYi Micro Hei"
+"新宋体"="WenQuanYi Micro Hei"
+
+[HKEY_LOCAL_MACHINE\Software\Microsoft\Windows NT\CurrentVersion\FontLink\SystemLink]
+"Tahoma"="wqy-microhei.ttc,WenQuanYi Micro Hei"
+"Tahoma Bold"="wqy-microhei.ttc,WenQuanYi Micro Hei"
+"Lucida Sans Unicode"="wqy-microhei.ttc,WenQuanYi Micro Hei"
+"Microsoft Sans Serif"="wqy-microhei.ttc,WenQuanYi Micro Hei"
+"MS Sans Serif"="wqy-microhei.ttc,WenQuanYi Micro Hei"
+"MS Serif"="wqy-microhei.ttc,WenQuanYi Micro Hei"
+"SimSun"="wqy-microhei.ttc,WenQuanYi Micro Hei"
+"Arial"="wqy-microhei.ttc,WenQuanYi Micro Hei"
+"Arial Black"="wqy-microhei.ttc,WenQuanYi Micro Hei"
+"Courier New"="wqy-microhei.ttc,WenQuanYi Micro Hei"
+"Segoe UI"="wqy-microhei.ttc,WenQuanYi Micro Hei"
+"Microsoft YaHei"="wqy-microhei.ttc,WenQuanYi Micro Hei"
+"MS UI Gothic"="wqy-microhei.ttc,WenQuanYi Micro Hei"
+"MS Mincho"="wqy-microhei.ttc,WenQuanYi Micro Hei"
+"MS Gothic"="wqy-microhei.ttc,WenQuanYi Micro Hei"
+"Meiryo"="wqy-microhei.ttc,WenQuanYi Micro Hei"
+"Yu Gothic"="wqy-microhei.ttc,WenQuanYi Micro Hei"
+"Yu Gothic UI"="wqy-microhei.ttc,WenQuanYi Micro Hei"
+
+[HKEY_LOCAL_MACHINE\Software\Microsoft\Windows NT\CurrentVersion\Fonts]
+"WenQuanYi Micro Hei (TrueType)"="wqy-microhei.ttc"
+"WenQuanYi Micro Hei Mono (TrueType)"="wqy-microhei.ttc"
+"SimSun (TrueType)"="wqy-microhei.ttc"
+"Microsoft YaHei (TrueType)"="wqy-microhei.ttc"
+"MS Mincho (TrueType)"="wqy-microhei.ttc"
+"MS Gothic (TrueType)"="wqy-microhei.ttc"
+"Meiryo (TrueType)"="wqy-microhei.ttc"
+
+[HKEY_CURRENT_USER\Software\Wine\Fonts\Replacements]
+"MS Shell Dlg"="WenQuanYi Micro Hei"
+"MS Shell Dlg 2"="WenQuanYi Micro Hei"
+"Tahoma"="WenQuanYi Micro Hei"
+"SimSun"="WenQuanYi Micro Hei"
+"Microsoft YaHei"="WenQuanYi Micro Hei"
+"MS Gothic"="WenQuanYi Micro Hei"
+"MS Mincho"="WenQuanYi Micro Hei"
+"Yu Gothic"="WenQuanYi Micro Hei"
+"Meiryo"="WenQuanYi Micro Hei"
+"Arial"="WenQuanYi Micro Hei"
+"Courier New"="WenQuanYi Micro Hei"
+REGEOF
+
+# 导入
+timeout 5 killall -9 wineserver 2>/dev/null; sleep 1
+DISPLAY=:1 WINEPREFIX=$PREFIX WINEESYNC=1 "$BOX64" "$WINE" regedit "C:/fontfix.reg" 2>/dev/null
+echo "注册表导入完成"
+
+grep -c "wqy-microhei\|WenQuanYi" "$PREFIX/system.reg"
+echo "个字体条目已注册"
