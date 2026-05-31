@@ -242,7 +242,7 @@ main() {
 
     # 检测 DirectX 版本
     local dx_ver
-    dx_ver=$(detect_dx "$exe_dir")
+    dx_ver=$(detect_dx "$exe_path")
     if [ "$dx_ver" = "auto" ]; then
         log "DirectX: 自动检测 (由 Wine 决定)"
     else
