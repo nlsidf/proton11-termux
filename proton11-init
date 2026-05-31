@@ -4,15 +4,11 @@
 # 首次使用前运行，完成 wineprefix 创建、DXVK 安装、Mono 安装、Gecko 安装
 # 用法: proton11-init
 # ============================================================
-
 set -e
-
 PROJ="$HOME/proton11"
-
 log() { echo "[Proton11-Init] $1"; }
 warn() { echo "[Proton11-Init] 警告: $1" >&2; }
 die() { echo "[Proton11-Init] 错误: $1" >&2; exit 1; }
-
 WINE_BIN="$PROJ/xaw64_wine/proton-11/bin/wine"
 BOX64="$PROJ/box64/build/box64"
 WINEPREFIX_DIR="$PROJ/p11prefix"
@@ -20,7 +16,6 @@ DXVK_DIR="$PROJ/dxvk-2.5.3/x64"
 MONO_MSI="$PROJ/wine-mono-11.1.0-x86.msi"
 GECKO_MSI_X86="$PROJ/wine-gecko-2.47.4-x86.msi"
 GECKO_MSI_X64="$PROJ/wine-gecko-2.47.4-x86_64.msi"
-
 check_prereqs() {
     [ -x "$BOX64" ] || die "Box64 未找到: $BOX64"
     [ -x "$WINE_BIN" ] || die "Wine 未找到: $WINE_BIN"
@@ -34,14 +29,12 @@ check_prereqs() {
         die "xaw64_wine/.wine-version 文件缺失"
     fi
 }
-
 kill_all_wine() {
     for name in wineserver wineboot rundll32 services winedevice plugplay svchost rpcss explorer tabtip game; do
         pkill -9 -f "$name" 2>/dev/null || true
     done
     sleep 1
 }
-
 setup_env() {
     unset LD_PRELOAD
     export DISPLAY=:1
@@ -65,7 +58,6 @@ setup_env() {
     export PULSE_SERVER=tcp:127.0.0.1:4713
     export WINEDLLOVERRIDES="winepulse.drv=b;winealsa.drv="
 }
-
 start_wineserver() {
     local esync=$1
     export WINEESYNC=$esync
@@ -78,7 +70,6 @@ start_wineserver() {
     done
     return 1
 }
-
 install_msi() {
     local src="$1"
     local msi_file=$(basename "$src")
@@ -91,7 +82,6 @@ install_msi() {
     done
     rm -f "$WINEPREFIX_DIR/drive_d/$msi_file"
 }
-
 init_wineprefix() {
     if [ -f "$WINEPREFIX_DIR/drive_d/windows/system32/kernel32.dll" ]; then
         log "Wineprefix 已存在，跳过 wineboot"
@@ -102,11 +92,9 @@ init_wineprefix() {
         fi
         return 0
     fi
-
     log "步骤 1/5: 运行 wineboot 初始化 (约 1-3 分钟)..."
     $BOX64 $WINE_BIN wineboot --init 2>/dev/null &
     local WPID=$!
-
     for i in $(seq 1 60); do
         if [ -d "$WINEPREFIX_DIR/drive_d" ] && [ ! -e "$WINEPREFIX_DIR/drive_c" ]; then
             ln -s drive_d "$WINEPREFIX_DIR/drive_c"
@@ -115,19 +103,15 @@ init_wineprefix() {
         fi
         sleep 1
     done
-
     for i in $(seq 1 180); do
         ! kill -0 $WPID 2>/dev/null && break
         sleep 1
     done
-
     kill_all_wine
-
     rm -f "$WINEPREFIX_DIR/dosdevices/z:"
     ln -s "$HOME" "$WINEPREFIX_DIR/dosdevices/z:"
     log "wineboot 完成"
 }
-
 install_dxvk() {
     if [ -f "$WINEPREFIX_DIR/drive_d/windows/system32/d3d11.dll" ] && grep -q "d3d11\"=\"native,builtin" "$WINEPREFIX_DIR/user.reg" 2>/dev/null; then
         log "DXVK 已安装，跳过"
@@ -145,7 +129,6 @@ install_dxvk() {
     fi
     log "DXVK 安装完成"
 }
-
 install_mono() {
     if [ -d "$WINEPREFIX_DIR/drive_d/windows/mono" ]; then
         log "Wine Mono 已安装，跳过"
@@ -162,7 +145,6 @@ install_mono() {
     kill_all_wine
     log "Wine Mono 安装完成"
 }
-
 install_gecko() {
     if [ -d "$WINEPREFIX_DIR/drive_d/windows/system32/gecko" ] && ls "$WINEPREFIX_DIR/drive_d/windows/system32/gecko/"* &>/dev/null 2>/dev/null; then
         local gfiles=$(find "$WINEPREFIX_DIR/drive_d/windows/system32/gecko" -type f 2>/dev/null | wc -l)
@@ -172,7 +154,6 @@ install_gecko() {
         fi
     fi
     kill_all_wine
-
     if [ -f "$GECKO_MSI_X64" ]; then
         log "步骤 4/5: 安装 Wine Gecko 2.47.4 x86_64 (约 1-2 分钟)..."
         start_wineserver 0
@@ -185,21 +166,18 @@ install_gecko() {
         install_msi "$GECKO_MSI_X86"
         kill_all_wine
     fi
-
     if [ -d "$WINEPREFIX_DIR/drive_d/windows/system32/gecko" ]; then
         log "Wine Gecko 安装完成"
     else
         warn "Wine Gecko 安装失败或安装包不存在，跳过"
     fi
 }
-
 enable_esync() {
     log "启用 ESYNC..."
     kill_all_wine
     WINEESYNC=1 start_wineserver 1
     log "ESYNC 已启用"
 }
-
 verify() {
     log "步骤 5/5: 验证安装..."
     local ok=true
@@ -247,7 +225,10 @@ verify() {
         die "初始化未完成，请检查上述错误"
     fi
 }
-
+install_fonts() {
+    echo ">>> 安装中文字体..."
+    "$PROJ/proton11-fonts"
+}
 main() {
     log "Proton 11 环境初始化"
     log ""
@@ -257,8 +238,8 @@ main() {
     install_dxvk
     install_mono
     install_gecko
+    install_fonts
     enable_esync
     verify
 }
-
 main "$@"
