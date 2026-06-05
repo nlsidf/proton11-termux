@@ -1,0 +1,246 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# ============================================================
+# Proton 11 通用游戏启动器
+# 自动检测 exe 架构 (x86/x64)，适配渲染和音频
+# 用法: proton11-run <game.exe> [参数...]
+#       proton11-run --status   查看环境状态
+# ============================================================
+
+set -e
+
+PROJ="$HOME/proton11"
+
+# ==================== 辅助函数 ====================
+
+log() { echo "[Proton11] $1"; }
+warn() { echo "[Proton11] 警告: $1" >&2; }
+die() { echo "[Proton11] 错误: $1" >&2; exit 1; }
+
+# 检测 exe 是 32 位还是 64 位
+detect_arch() {
+    local exe="$1"
+    # 读取 PE header: offset 0x3C 处是 PE header 偏移 (little-endian)
+    # 用 -t x1 单字节读取避免字节序问题
+    local pe_off_hex
+    pe_off_hex=$(od -A n -t x1 -j 0x3C -N 4 "$exe" 2>/dev/null | tr -d ' ')
+    if [ -z "$pe_off_hex" ] || [ ${#pe_off_hex} -ne 8 ]; then
+        warn "无法读取 PE header，默认使用 x64"
+        echo "x64"
+        return
+    fi
+    # little-endian: 反转字节顺序
+    local b1=${pe_off_hex:0:2} b2=${pe_off_hex:2:2} b3=${pe_off_hex:4:2} b4=${pe_off_hex:6:2}
+    local pe_offset=$((16#$b2 * 256 + 16#$b1))
+    if [ "$pe_offset" -lt 64 ] || [ "$pe_offset" -gt 4096 ]; then
+        warn "PE header 偏移异常 ($pe_offset)，默认使用 x64"
+        echo "x64"
+        return
+    fi
+    # 读取 Machine type (PE signature + 4 bytes = Machine), little-endian
+    local mach_hex
+    mach_hex=$(od -A n -t x1 -j $((pe_offset + 4)) -N 2 "$exe" 2>/dev/null | tr -d ' ')
+    case "$mach_hex" in
+        4c01) echo "x86" ;;
+        6486) echo "x64" ;;
+        *)
+            warn "未知 Machine type: 0x$mach_hex，默认使用 x64"
+            echo "x64"
+            ;;
+    esac
+}
+
+# 检测 exe 依赖的 DirectX 版本 (简单启发式)
+detect_dx() {    local exe="$1"    local exe_dir="$(dirname "$exe")"    # 检查 exe 导入表中是否有 D3D11/DXGI/D3D9 引用    local d3d_refs=$(strings "$exe" 2>/dev/null | grep -iE "d3d11.dll|dxgi.dll|d3d9.dll" | sort -u)    if echo "$d3d_refs" | grep -qiE "d3d11|dxgi"; then        echo "dx11"    elif echo "$d3d_refs" | grep -qi "d3d9"; then        echo "dx9"    # 如果 exe 没直接引用，查看目录是否有配套 DLL    elif ls "$exe_dir"/*.dll 2>/dev/null | grep -qiE "d3d11|dxgi"; then        echo "dx11"    elif ls "$exe_dir"/*.dll 2>/dev/null | grep -qiE "d3d9"; then        echo "dx9"    # 默认: x64 倾向 DXVK, x86 倾向 wined3d    else        local arch=$(detect_arch "$exe")        if [ "$arch" = "x64" ]; then            echo "dx11"        else            echo "dx9"        fi    fi}
+
+# 启动 PulseAudio
+ensure_audio() {
+    if ! pgrep -x pulseaudio > /dev/null 2>&1; then
+        log "启动 PulseAudio..."
+        "$PROJ/start-audio.sh" || warn "PulseAudio 启动失败"
+    elif ! pactl info > /dev/null 2>&1; then
+        log "PulseAudio 状态异常，重启..."
+        "$PROJ/start-audio.sh" restart || warn "PulseAudio 重启失败"
+    fi
+}
+
+# 显示环境状态
+show_status() {
+    echo "=== Proton 11 环境状态 ==="
+    echo ""
+    echo "项目目录: $PROJ"
+
+    # Box64
+    if [ -x "$PROJ/box64/build/box64" ]; then
+        local bv=$($PROJ/box64/build/box64 --version 2>/dev/null | head -1 || echo "unknown")
+        echo "Box64: $bv"
+    else
+        echo "Box64: 未找到"
+    fi
+
+    # Wine
+    if [ -x "$PROJ/xaw64_wine/proton-11/bin/wine" ]; then
+        echo "Wine: Proton 11 ($PROJ/xaw64_wine/proton-11/bin/wine)"
+    else
+        echo "Wine: 未找到"
+    fi
+
+    # Prefix
+    if [ -d "$PROJ/p11prefix/drive_d" ]; then
+        echo "Prefix: $PROJ/p11prefix (正常)"
+    else
+        echo "Prefix: 未初始化"
+    fi
+
+    # DXVK
+    if [ -f "$PROJ/dxvk-2.5.3/x64/d3d11.dll" ]; then
+        echo "DXVK: 2.5.3"
+    else
+        echo "DXVK: 未安装"
+    fi
+
+    # PulseAudio
+    if pgrep -x pulseaudio > /dev/null 2>&1 && pactl info > /dev/null 2>&1; then
+        local sink=$(pactl list sinks short 2>/dev/null | head -1 | awk '{print $2, $5}')
+        echo "PulseAudio: 运行中 ($sink)"
+    else
+        echo "PulseAudio: 未运行"
+    fi
+
+    # Vulkan ICD
+    if [ -f "/data/data/com.termux/files/usr/share/vulkan/icd.d/lvp_icd.aarch64.json" ]; then
+        echo "Vulkan ICD: lavapipe"
+    else
+        echo "Vulkan ICD: 未找到"
+    fi
+
+    echo ""
+    echo "启动方式: proton11-run <game.exe>"
+}
+
+# ==================== 环境配置 ====================
+
+setup_env() {
+    local arch="$1"
+    local dx_ver="$2"
+
+    unset LD_PRELOAD
+
+    # 基础
+    export DISPLAY=:1
+    export WINEPREFIX=$PROJ/p11prefix
+    export WINEESYNC=1
+    export WINEDEBUG=-all
+    export VK_ICD_FILENAMES=/data/data/com.termux/files/usr/share/vulkan/icd.d/lvp_icd.aarch64.json
+
+    # Box64 性能
+    export BOX64_MMAP32=1
+    export BOX64_DYNAREC_SAFEFLAGS=2
+    export BOX64_DYNAREC_BIGBLOCK=3
+    export BOX64_DYNAREC_CALLRET=1
+    export BOX64_DYNAREC_FORWARD=1024
+    export BOX64_DYNAREC_ALIGNED_ATOMICS=1
+    export BOX64_DYNAREC_STRONGMEM=2
+    export BOX64_DYNAREC_WEAKBARRIER=1
+    export BOX64_DYNAREC_FASTNAN=1
+    export BOX64_DYNAREC_FASTROUND=1
+    export BOX64_RCFILE=$PROJ/xaw64_box64/etc/box64.box64rc
+
+    # DynaCache (按架构分目录缓存)
+    local cache_dir="$PROJ/.cache/dynacache"
+    mkdir -p "$cache_dir"
+    export BOX64_DYNACACHE=1
+    export BOX64_DYNACACHE_FOLDER="$cache_dir"
+    export BOX64_DYNACACHE_LIMIT=4403           # 最大缓存 4.3GiB，用空间换时间
+    export BOX64_DYNACACHE_COMPRESS=1           # 最快压缩，节省空间同时开销极小
+    export BOX64_DYNACACHE_MIN=225              # 225KB 最小缓存阈值
+
+    # 库搜索路径
+    export BOX64_LD_LIBRARY_PATH=/data/data/com.termux/files/usr/lib:$PROJ/xaw64_box64/lib:$PROJ/xaw64_wine/proton-11/lib/wine/x86_64-unix:$PROJ/xaw64_wine/proton-11/lib/wine/i386-windows:$PROJ/xaw64_wine/x86_64-windows:$PROJ/proton-11/lib
+    export LD_LIBRARY_PATH=/data/data/com.termux/files/usr/lib:${LD_LIBRARY_PATH:-}
+
+    # 音频
+    export PULSE_SERVER=tcp:127.0.0.1:4713
+    export WINEDLLOVERRIDES="winepulse.drv=b;winealsa.drv="
+
+    # 渲染: DX11 用 DXVK+lavapipe, DX9 用 wined3d+llvmpipe
+    if [ "$dx_ver" = "dx11" ]; then
+        log "渲染: DXVK 2.5.3 + lavapipe (DX11+)"
+        # DXVK overrides 已在 prefix 的 user.reg 中
+    else
+        log "渲染: wined3d + llvmpipe (DX9/OpenGL)"
+        # DX9 不需要 DXVK，wined3d 处理
+    fi
+
+    # Shader 缓存
+    local shader_dir="$PROJ/.cache/shaders"
+    mkdir -p "$shader_dir/dxvk" "$shader_dir/mesa"
+    export DXVK_STATE_CACHE_PATH="$shader_dir/dxvk/state-cache"
+    export MESA_SHADER_CACHE_DIR="$shader_dir/mesa"
+    export MESA_SHADER_CACHE_MAX_SIZE=512M
+}
+
+# ==================== 主流程 ====================
+
+main() {
+    local exe_path="${1:-}"
+
+    # 特殊命令
+    case "$exe_path" in
+        --status|-s)
+            show_status
+            exit 0
+            ;;
+        --help|-h|"")
+            echo "用法: proton11-run <game.exe> [参数...]"
+            echo "      proton11-run --status  查看环境状态"
+            echo ""
+            echo "自动检测 exe 架构 (x86/x64) 和 DirectX 版本"
+            echo "DX11+ 游戏使用 DXVK + lavapipe"
+            echo "DX9 游戏使用 wined3d + llvmpipe"
+            exit 0
+            ;;
+    esac
+
+    # 解析 exe 路径
+    if [ ! -f "$exe_path" ]; then
+        die "找不到文件: $exe_path"
+    fi
+
+    # 转为绝对路径
+    exe_path="$(cd "$(dirname "$exe_path")" && pwd)/$(basename "$exe_path")"
+    local exe_name="$(basename "$exe_path")"
+    local exe_dir="$(dirname "$exe_path")"
+
+    # 检测架构
+    local arch
+    arch=$(detect_arch "$exe_path")
+    log "游戏: $exe_name"
+    log "架构: $arch"
+
+    # 检测 DirectX 版本
+    local dx_ver
+    dx_ver=$(detect_dx "$exe_dir")
+    if [ "$dx_ver" = "auto" ]; then
+        log "DirectX: 自动检测 (由 Wine 决定)"
+    else
+        log "DirectX: $dx_ver"
+    fi
+
+    # 确保 PulseAudio 运行
+    ensure_audio
+
+    # 检查 wineprefix 是否已初始化
+    if [ ! -f "$PROJ/p11prefix/drive_d/windows/system32/kernel32.dll" ]; then
+        die "Wineprefix 未初始化！请先运行: $PROJ/proton11-init"
+    fi
+
+    # 配置环境
+    setup_env "$arch" "$dx_ver"
+
+    # 启动游戏
+    log "启动中..."
+    cd "$exe_dir"
+    exec "$PROJ/box64/build/box64" "$PROJ/xaw64_wine/proton-11/bin/wine" "$exe_name"
+}
+
+main "$@"

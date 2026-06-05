@@ -351,6 +351,16 @@ vncserver :1
 ## 排错指南
 
 ### wineboot 反复运行 / 卡住
+n### Proot 环境 (machine-id / alsa)
+
+在 Termux proot 环境下，某些系统文件不可访问导致游戏启动时的警告信息：
+
+| 警告 | 原因 | 解决 |
+|------|------|------|
+| `Failed to open /etc/machine-id` | /etc 目录在 proot 内只读，无法读取 machine-id | LD_PRELOAD 劫持 open 调用重定向到 $HOME/.fake_machine_id |
+| `Error initializing native libasound.so` | Box64 需要 libasound.so.2 但只有 libasound.so | 创建符号链接: `ln -sf libasound.so libasound.so.2` |
+
+`proton11-init` 会自动创建 alsa 符号链接。machine-id 修复在每个 `launch-*.sh` 脚本中已包含。
 
 | 原因 | 症状 | 解决 |
 |------|------|------|

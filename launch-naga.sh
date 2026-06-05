@@ -1,4 +1,6 @@
 #!/data/data/com.termux/files/usr/bin/bash
+export FAKE_MACHINE_ID="85536ceb47e8aa768973fe1c6a227604"
+export LD_PRELOAD="$HOME/fake_machineid.so"
 PROJ="$HOME/proton11"
 NAME="naga"
 

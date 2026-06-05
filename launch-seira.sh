@@ -5,9 +5,8 @@ unset LD_PRELOAD
 
 "$PROJ/start-audio.sh" > /dev/null 2>&1 &
 export PULSE_SERVER=tcp:127.0.0.1:4713
-
-"$PROJ/box64/build/box64" "$PROJ/xaw64_wine/proton-11/bin/wine" wineserver -k 2>/dev/null
-sleep 1
+export FAKE_MACHINE_ID="85536ceb47e8aa768973fe1c6a227604"
+export LD_PRELOAD="$HOME/fake_machineid.so"
 
 mkdir -p "$PROJ/.cache/dynacache"
 
