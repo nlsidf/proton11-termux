@@ -1,19 +1,18 @@
-# 大型二进制文件 - 通过 GitHub Release 分发
-proton-11/
-p11prefix/
-box64/
-xaw64/
-xaw64_box64/
-dxvk-2.5.3/
-wine-mono-11.1.0-x86.msi
-
-# 缓存
-.cache/
-
-# 运行时日志
-game.log
-*.log
 
 # xaw64_wine 符号链接和运行时文件
-xaw64_wine/
+# 大型二进制文件 - 通过 GitHub Release 分发
+# 缓存
+# 运行时日志
+*.log
+.cache/
+box64/
+dxvk-2.5.3/
+game.log
+p11prefix/
+proton-11/
+wine-gecko-*.msi
+wine-mono-11.1.0-x86.msi
+xaw64/
+xaw64_box64/
 xaw64_drivers/
+xaw64_wine/
